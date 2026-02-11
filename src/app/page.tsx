@@ -1,173 +1,24 @@
 import { ExperimentItem, getRoadmapData, ReleaseItem } from "@/lib/notion";
+import {
+  addUtcDays,
+  clampText,
+  compactReleaseLabel,
+  DAY_WIDTH,
+  diffDays,
+  EXPERIMENT_BAR_HEIGHT,
+  EXPERIMENT_ROW_HEIGHT,
+  formatHumanDate,
+  formatMonth,
+  getBandLayout,
+  HEADER_HEIGHT,
+  layoutTimeline,
+  platformTone,
+  RELEASE_LANE_HEIGHT,
+  stageTone,
+  startOfUtcDay,
+} from "@/lib/timeline";
 
 export const dynamic = "force-dynamic";
-
-const DAY_WIDTH = 34;
-const EXPERIMENT_ROW_HEIGHT = 40;
-const EXPERIMENT_BAR_HEIGHT = 30;
-const RELEASE_LANE_HEIGHT = 28;
-
-type PositionedExperiment = ExperimentItem & {
-  row: number;
-  startIndex: number;
-  endIndex: number;
-};
-
-type PositionedRelease = ReleaseItem & {
-  lane: number;
-  dayIndex: number;
-  labelEnd: number;
-};
-
-function utcDate(isoDate: string): Date {
-  return new Date(`${isoDate}T00:00:00.000Z`);
-}
-
-function startOfUtcDay(date: Date): Date {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-}
-
-function addUtcDays(date: Date, days: number): Date {
-  return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
-}
-
-function diffDays(start: Date, end: Date): number {
-  return Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
-}
-
-function clampText(input: string, maxChars: number): string {
-  if (input.length <= maxChars) {
-    return input;
-  }
-  return `${input.slice(0, maxChars - 1)}…`;
-}
-
-function compactReleaseLabel(label: string): string {
-  const match = /^(.+?)(\s+)([\d.]+)([^\d.].*)?$/.exec(label);
-  const short = match ? `${match[1]}${match[2]}${match[3]}` : label;
-  return short.replace("Backend", "BE");
-}
-
-function stageTone(stage: string): "running" | "winner" | "ended" | "neutral" {
-  const lower = stage.toLowerCase();
-  if (lower.includes("running") || lower.includes("active") || lower.includes("exploring")) {
-    return "running";
-  }
-  if (lower.includes("winner") || lower.includes("rollout") || lower.includes("shipped")) {
-    return "winner";
-  }
-  if (lower.includes("ended") || lower.includes("stop") || lower.includes("backlog")) {
-    return "ended";
-  }
-  return "neutral";
-}
-
-function platformTone(platform: string): "ios" | "android" | "backend" | "other" {
-  const lower = platform.toLowerCase();
-  if (lower.includes("ios")) {
-    return "ios";
-  }
-  if (lower.includes("android")) {
-    return "android";
-  }
-  if (lower.includes("backend") || lower.includes("server")) {
-    return "backend";
-  }
-  return "other";
-}
-
-function layoutTimeline(
-  experiments: ExperimentItem[],
-  releases: ReleaseItem[],
-  windowStartIso: string,
-): {
-  startDate: Date;
-  endDate: Date;
-  totalDays: number;
-  positionedExperiments: PositionedExperiment[];
-  positionedReleases: PositionedRelease[];
-  experimentRows: number;
-  releaseLanes: number;
-  canvasWidth: number;
-} {
-  const startDate = utcDate(windowStartIso);
-  const today = startOfUtcDay(new Date());
-
-  const allEndDates = [
-    today,
-    ...experiments.map((exp) => utcDate(exp.endDate)),
-    ...releases.map((rel) => utcDate(rel.date)),
-  ];
-  const endDate = allEndDates.reduce((latest, candidate) => {
-    return candidate > latest ? candidate : latest;
-  }, today);
-
-  const totalDays = Math.max(1, diffDays(startDate, endDate) + 1);
-
-  const sortedExperiments = [...experiments].sort((a, b) =>
-    a.startDate.localeCompare(b.startDate),
-  );
-  const experimentRowEnds: number[] = [];
-  const positionedExperiments: PositionedExperiment[] = sortedExperiments.map((item) => {
-    const startIndex = Math.max(0, diffDays(startDate, utcDate(item.startDate)));
-    const endIndex = Math.max(startIndex, diffDays(startDate, utcDate(item.endDate)));
-
-    let row = experimentRowEnds.findIndex((rowEnd) => startIndex > rowEnd);
-    if (row < 0) {
-      row = experimentRowEnds.length;
-      experimentRowEnds.push(endIndex);
-    } else {
-      experimentRowEnds[row] = endIndex;
-    }
-
-    return { ...item, row, startIndex, endIndex };
-  });
-
-  const sortedReleases = [...releases].sort((a, b) => a.date.localeCompare(b.date));
-  const laneOccupancy: number[] = [];
-  let maxReleaseLabelEnd = totalDays * DAY_WIDTH;
-  const positionedReleases: PositionedRelease[] = sortedReleases.map((item) => {
-    const dayIndex = Math.max(0, diffDays(startDate, utcDate(item.date)));
-    const x = dayIndex * DAY_WIDTH + Math.floor(DAY_WIDTH / 2);
-    const label = compactReleaseLabel(item.name);
-    const labelWidth = Math.max(92, Math.min(240, label.length * 7 + 44));
-
-    let lane = laneOccupancy.findIndex((occupiedUntil) => x > occupiedUntil + 12);
-    if (lane < 0) {
-      lane = laneOccupancy.length;
-      laneOccupancy.push(x + labelWidth);
-    } else {
-      laneOccupancy[lane] = x + labelWidth;
-    }
-
-    maxReleaseLabelEnd = Math.max(maxReleaseLabelEnd, x + labelWidth + 20);
-    return { ...item, lane, dayIndex, labelEnd: x + labelWidth };
-  });
-
-  return {
-    startDate,
-    endDate,
-    totalDays,
-    positionedExperiments,
-    positionedReleases,
-    experimentRows: Math.max(1, experimentRowEnds.length),
-    releaseLanes: Math.max(1, laneOccupancy.length),
-    canvasWidth: Math.max(totalDays * DAY_WIDTH, maxReleaseLabelEnd),
-  };
-}
-
-function formatMonth(date: Date): string {
-  return date.toLocaleString("en-US", { month: "long", timeZone: "UTC" });
-}
-
-function formatHumanDate(date: Date): string {
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  });
-}
 
 export default async function Home() {
   let error = "";
@@ -201,12 +52,7 @@ export default async function Home() {
   const todayIndex = diffDays(timeline.startDate, today);
   const hasToday = todayIndex >= 0 && todayIndex < timeline.totalDays;
 
-  const headerHeight = 74;
-  const experimentBandTop = 18;
-  const experimentBandHeight = timeline.experimentRows * EXPERIMENT_ROW_HEIGHT + 10;
-  const releaseBandTop = experimentBandTop + experimentBandHeight + 44;
-  const releaseBandHeight = timeline.releaseLanes * RELEASE_LANE_HEIGHT + 50;
-  const bodyHeight = releaseBandTop + releaseBandHeight + 24;
+  const { experimentBandTop, releaseBandTop, bodyHeight } = getBandLayout(timeline);
 
   const days = Array.from({ length: timeline.totalDays }, (_, idx) => addUtcDays(timeline.startDate, idx));
 
@@ -217,17 +63,36 @@ export default async function Home() {
   return (
     <main className="roadmapPage">
       <header className="roadmapHeader">
-        <h1>Down Roadmap</h1>
-        <div className="summary">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+          <h1>Down Roadmap</h1>
+          <a
+            href="/api/timeline-svg?download=1"
+            style={{
+              textDecoration: "none",
+              color: "#e7ebf6",
+              background: "rgba(61, 124, 224, 0.24)",
+              border: "1px solid rgba(61, 124, 224, 0.5)",
+              borderRadius: "999px",
+              padding: "7px 14px",
+              fontSize: "13px",
+              fontWeight: 620,
+            }}
+          >
+            Export SVG
+          </a>
+        </div>
+        <div className="summary" style={{ marginTop: "8px" }}>
           <span>{experiments.length} experiments</span>
           <span>{releases.length} releases</span>
-          <span>{formatHumanDate(timeline.startDate)} - {formatHumanDate(timeline.endDate)}</span>
+          <span>
+            {formatHumanDate(timeline.startDate)} - {formatHumanDate(timeline.endDate)}
+          </span>
         </div>
       </header>
 
       <section className="timelineViewport" aria-label="Roadmap timeline">
         <div className="timelineCanvas" style={{ width: `${timeline.canvasWidth}px` }}>
-          <div className="timelineHeader" style={{ height: `${headerHeight}px` }}>
+          <div className="timelineHeader" style={{ height: `${HEADER_HEIGHT}px` }}>
             <div className="monthRow">
               {monthMarkers.map(({ day, idx }) => (
                 <span key={`month-${idx}`} className="monthLabel" style={{ left: `${idx * DAY_WIDTH + 6}px` }}>
@@ -251,7 +116,7 @@ export default async function Home() {
             </div>
           </div>
 
-          <div className="timelineBody" style={{ top: `${headerHeight}px`, height: `${bodyHeight}px` }}>
+          <div className="timelineBody" style={{ top: `${HEADER_HEIGHT}px`, height: `${bodyHeight}px` }}>
             <div className="gridLayer">
               {days.map((day, idx) => {
                 const isWeekend = day.getUTCDay() === 0 || day.getUTCDay() === 6;

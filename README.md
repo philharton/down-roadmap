@@ -31,3 +31,4 @@ Open [http://localhost:3000](http://localhost:3000).
 - Sticky top date header (day granularity).
 - Horizontal + vertical scroll for dense timelines.
 - Click any item to open the matching Notion page in a new tab.
+- `Export SVG` button for a shareable static timeline snapshot.
