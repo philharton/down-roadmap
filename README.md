@@ -32,3 +32,4 @@ Open [http://localhost:3000](http://localhost:3000).
 - Horizontal + vertical scroll for dense timelines.
 - Click any item to open the matching Notion page in a new tab.
 - `Export SVG` button for a shareable static timeline snapshot.
+- `Export Figma SVG (Small)` and `Export Figma SVG (Tiny)` variants with reduced text sizing for Figma/FigJam import.

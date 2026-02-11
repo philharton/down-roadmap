@@ -60,26 +60,49 @@ export default async function Home() {
     .map((day, idx) => ({ day, idx }))
     .filter(({ day, idx }) => idx === 0 || day.getUTCDate() === 1);
 
+  const exportLinkStyle = {
+    textDecoration: "none",
+    color: "#e7ebf6",
+    background: "rgba(61, 124, 224, 0.24)",
+    border: "1px solid rgba(61, 124, 224, 0.5)",
+    borderRadius: "999px",
+    padding: "7px 14px",
+    fontSize: "13px",
+    fontWeight: 620,
+    whiteSpace: "nowrap" as const,
+  };
+
   return (
     <main className="roadmapPage">
       <header className="roadmapHeader">
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            gap: "12px",
+            flexWrap: "wrap",
+          }}
+        >
           <h1>Down Roadmap</h1>
-          <a
-            href="/api/timeline-svg?download=1"
+          <div
             style={{
-              textDecoration: "none",
-              color: "#e7ebf6",
-              background: "rgba(61, 124, 224, 0.24)",
-              border: "1px solid rgba(61, 124, 224, 0.5)",
-              borderRadius: "999px",
-              padding: "7px 14px",
-              fontSize: "13px",
-              fontWeight: 620,
+              display: "flex",
+              gap: "8px",
+              flexWrap: "wrap",
+              justifyContent: "flex-end",
             }}
           >
-            Export SVG
-          </a>
+            <a href="/api/timeline-svg?download=1" style={exportLinkStyle}>
+              Export SVG
+            </a>
+            <a href="/api/figma-svg?download=1&variant=small" style={exportLinkStyle}>
+              Export Figma SVG (Small)
+            </a>
+            <a href="/api/figma-svg?download=1&variant=tiny" style={exportLinkStyle}>
+              Export Figma SVG (Tiny)
+            </a>
+          </div>
         </div>
         <div className="summary" style={{ marginTop: "8px" }}>
           <span>{experiments.length} experiments</span>

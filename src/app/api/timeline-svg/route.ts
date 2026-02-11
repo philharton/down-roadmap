@@ -22,6 +22,33 @@ import {
 
 export const dynamic = "force-dynamic";
 
+type ExportVariant = "default" | "figma-small" | "figma-tiny";
+
+type VariantSettings = {
+  id: ExportVariant;
+  fontScale: number;
+  filenameTag: string;
+};
+
+function resolveVariant(raw: string | null): VariantSettings {
+  const value = (raw ?? "default").trim().toLowerCase();
+
+  if (value === "small" || value === "figma" || value === "figma-small") {
+    return { id: "figma-small", fontScale: 0.74, filenameTag: "figma-small" };
+  }
+
+  if (value === "tiny" || value === "figma-xs" || value === "figma-tiny") {
+    return { id: "figma-tiny", fontScale: 0.6, filenameTag: "figma-tiny" };
+  }
+
+  return { id: "default", fontScale: 1, filenameTag: "" };
+}
+
+function scaleFont(base: number, settings: VariantSettings, min = 1): number {
+  const scaled = Math.round(base * settings.fontScale * 100) / 100;
+  return Math.max(min, scaled);
+}
+
 function escapeXml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -64,9 +91,18 @@ function errorSvg(message: string): string {
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
+    const settings = resolveVariant(request.nextUrl.searchParams.get("variant"));
+
     const data = await getRoadmapData();
     const timeline = layoutTimeline(data.experiments, data.releases, data.windowStart);
     const { experimentBandTop, releaseBandTop, bodyHeight } = getBandLayout(timeline);
+
+    const monthFontSize = scaleFont(19, settings, 9);
+    const dayFontSize = scaleFont(18, settings, 8);
+    const bandFontSize = scaleFont(12, settings, 6);
+    const experimentFontSize = scaleFont(15, settings, 7);
+    const releaseFontSize = scaleFont(12, settings, 6);
+    const summaryFontSize = scaleFont(12, settings, 6);
 
     const totalWidth = timeline.canvasWidth;
     const totalHeight = HEADER_HEIGHT + bodyHeight;
@@ -95,18 +131,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       })
       .join("\n");
 
+    const dayLabelY = 34 + 8 + dayFontSize * 0.9;
+    const dayCharWidth = 8 * settings.fontScale;
+
     const dayLabels = days
       .map((day, idx) => {
         const x = idx * DAY_WIDTH + DAY_WIDTH / 2;
         const color = day.getUTCDay() === 0 || day.getUTCDay() === 6 ? "#7c8392" : "#a0a7b7";
-        return `<text x="${x}" y="62" fill="${color}" font-size="18" text-anchor="middle" font-family="Inter, Segoe UI, Arial, sans-serif">${day.getUTCDate()}</text>`;
+        return `<text x="${x}" y="${dayLabelY}" fill="${color}" font-size="${dayFontSize}" text-anchor="middle" font-family="Inter, Segoe UI, Arial, sans-serif">${day.getUTCDate()}</text>`;
       })
       .join("\n");
 
+    const monthLabelY = 8 + monthFontSize * 0.9;
     const monthLabels = monthMarkers
       .map(({ day, idx }) => {
         const x = idx * DAY_WIDTH + 6;
-        return `<text x="${x}" y="25" fill="#f3f4f8" font-size="19" font-weight="640" font-family="Inter, Segoe UI, Arial, sans-serif">${escapeXml(
+        return `<text x="${x}" y="${monthLabelY}" fill="#f3f4f8" font-size="${monthFontSize}" font-weight="640" font-family="Inter, Segoe UI, Arial, sans-serif">${escapeXml(
           formatMonth(day),
         )}</text>`;
       })
@@ -120,13 +160,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         const tone = stageTone(exp.stage);
         const palette = tonePalette(tone);
         const label = exp.stage ? `${exp.name} · ${exp.stage}` : exp.name;
-        const text = clampText(label, Math.max(20, Math.floor(width / 8)));
+        const text = clampText(label, Math.max(20, Math.floor(width / Math.max(dayCharWidth, 4.25))));
+        const textY = y + 7 + experimentFontSize * 0.84;
 
         return `
           <a href="${escapeXml(exp.url)}" target="_blank" rel="noopener noreferrer">
             <g>
               <rect x="${x}" y="${y}" width="${width}" height="${EXPERIMENT_BAR_HEIGHT}" rx="10" fill="${palette.fill}" stroke="${palette.stroke}" stroke-width="1"/>
-              <text x="${x + 10}" y="${y + 20}" fill="${palette.text}" font-size="15" font-weight="530" font-family="Inter, Segoe UI, Arial, sans-serif">${escapeXml(
+              <text x="${x + 10}" y="${textY}" fill="${palette.text}" font-size="${experimentFontSize}" font-weight="530" font-family="Inter, Segoe UI, Arial, sans-serif">${escapeXml(
                 text,
               )}</text>
             </g>
@@ -142,15 +183,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         const label = compactReleaseLabel(release.name);
         const tag = release.platform ? ` ${release.platform}` : "";
         const fullLabel = `${label}${tag}`;
-        const labelWidth = Math.max(92, Math.min(280, fullLabel.length * 7 + 24));
+        const labelWidth = Math.max(88, Math.min(280, fullLabel.length * Math.max(4.25, 7 * settings.fontScale) + 24));
         const color = platformPalette(platform);
+        const labelHeight = settings.id === "default" ? 20 : Math.max(14, Math.round(20 * settings.fontScale));
+        const labelY = y - Math.round((labelHeight - 10) / 2);
+        const textY = labelY + labelHeight / 2 + releaseFontSize * 0.36;
 
         return `
           <a href="${escapeXml(release.url)}" target="_blank" rel="noopener noreferrer">
             <g>
               <circle cx="${x}" cy="${y + 5}" r="5" fill="${color}" stroke="rgba(255,255,255,0.55)" stroke-width="1.5"/>
-              <rect x="${x + 10}" y="${y - 5}" width="${labelWidth}" height="20" rx="10" fill="rgba(20, 24, 32, 0.9)" stroke="rgba(255,255,255,0.16)"/>
-              <text x="${x + 20}" y="${y + 9}" fill="#dae0ec" font-size="12" font-family="Inter, Segoe UI, Arial, sans-serif">${escapeXml(
+              <rect x="${x + 10}" y="${labelY}" width="${labelWidth}" height="${labelHeight}" rx="10" fill="rgba(20, 24, 32, 0.9)" stroke="rgba(255,255,255,0.16)"/>
+              <text x="${x + 20}" y="${textY}" fill="#dae0ec" font-size="${releaseFontSize}" font-family="Inter, Segoe UI, Arial, sans-serif">${escapeXml(
                 fullLabel,
               )}</text>
             </g>
@@ -169,7 +213,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     )} - ${formatHumanDate(timeline.endDate)}`;
 
     const svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${totalWidth}" height="${totalHeight}" viewBox="0 0 ${totalWidth} ${totalHeight}">
+<svg xmlns="http://www.w3.org/2000/svg" width="${totalWidth}" height="${totalHeight}" viewBox="0 0 ${totalWidth} ${totalHeight}">
   <defs>
     <linearGradient id="headerGradient" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#0b0e13" />
@@ -186,9 +230,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   ${todayLine}
 
-  <text x="8" y="${HEADER_HEIGHT + experimentBandTop - 8}" fill="#8d93a3" font-size="12" letter-spacing="1" font-family="Inter, Segoe UI, Arial, sans-serif">EXPERIMENTS</text>
+  <text x="8" y="${HEADER_HEIGHT + experimentBandTop - 8}" fill="#8d93a3" font-size="${bandFontSize}" letter-spacing="1" font-family="Inter, Segoe UI, Arial, sans-serif">EXPERIMENTS</text>
   <line x1="0" y1="${HEADER_HEIGHT + releaseBandTop - 14}" x2="${totalWidth}" y2="${HEADER_HEIGHT + releaseBandTop - 14}" stroke="rgba(255,255,255,0.12)"/>
-  <text x="8" y="${HEADER_HEIGHT + releaseBandTop - 2}" fill="#8d93a3" font-size="12" letter-spacing="1" font-family="Inter, Segoe UI, Arial, sans-serif">RELEASES</text>
+  <text x="8" y="${HEADER_HEIGHT + releaseBandTop - 2}" fill="#8d93a3" font-size="${bandFontSize}" letter-spacing="1" font-family="Inter, Segoe UI, Arial, sans-serif">RELEASES</text>
 
   ${experimentBars}
   ${releaseItems}
@@ -196,20 +240,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   ${monthLabels}
   ${dayLabels}
 
-  <text x="12" y="${totalHeight - 10}" fill="#8a8f9e" font-size="12" font-family="Inter, Segoe UI, Arial, sans-serif">${escapeXml(
+  <text x="12" y="${totalHeight - 10}" fill="#8a8f9e" font-size="${summaryFontSize}" font-family="Inter, Segoe UI, Arial, sans-serif">${escapeXml(
     summary,
   )}</text>
 </svg>`;
 
     const shouldDownload = request.nextUrl.searchParams.get("download") === "1";
     const filenameDate = startOfUtcDay(new Date()).toISOString().slice(0, 10);
+    const variantSuffix = settings.filenameTag ? `-${settings.filenameTag}` : "";
 
     return new NextResponse(svg, {
       headers: {
         "Content-Type": "image/svg+xml; charset=utf-8",
         "Cache-Control": "no-store",
+        "X-Down-Roadmap-Svg-Variant": settings.id,
         ...(shouldDownload
-          ? { "Content-Disposition": `attachment; filename=down-roadmap-${filenameDate}.svg` }
+          ? { "Content-Disposition": `attachment; filename=down-roadmap${variantSuffix}-${filenameDate}.svg` }
           : {}),
       },
     });
